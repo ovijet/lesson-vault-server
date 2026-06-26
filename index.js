@@ -12,6 +12,10 @@ app.use(cors());
 const uri = process.env.MONGODB_URI;
 const port = process.env.PORT || 5000;
 
+app.get("/", (req, res) => {
+  res.send("server in running");
+});
+
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
