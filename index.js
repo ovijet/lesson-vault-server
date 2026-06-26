@@ -33,28 +33,60 @@ async function run() {
     const userCollection = db.collection("user");
     const addLesson = db.collection("addLesson");
     const commentsCollection = db.collection("comments");
+    const favoriteCollection = db.collection("favorite");
 
-    // ✅ Subscription route
-    // app.post("/subscription", async (req, res) => {
-    //   try {
-    //     const { sessionId, userId, priceId } = req.body;
 
-    //     await subscriptionsCollection.insertOne({
-    //       sessionId,
-    //       userId,
-    //       priceId,
-    //     });
+    
+app.patch("/addLesson/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const body = req.body;
+    console.log("ID:", id);
+    console.log("BODY:", body);
 
-    //     await userCollection.updateOne(
-    //       { _id: new ObjectId(userId) },
-    //       { $set: { role: "pro" } }
-    //     );
+    const result = await addLesson.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: body }
+    );
 
-    //     res.json({ msg: "payment successful" });
-    //   } catch (error) {
-    //     res.status(500).json({ success: false, message: error.message });
-    //   }
-    // });
+    console.log(result);
+    res.send(result);
+  } catch (err) {
+    console.error("Server Error:", err.message); // exact error দেখাবে
+    res.status(500).send({ error: err.message });
+  }
+});
+
+
+
+
+app.post("/favorites", async (req, res) => {
+  const favorite = req.body;
+
+  const exists = await favoriteCollection.findOne({
+    lessonId: favorite.lessonId,
+    email: favorite.email,
+  });
+
+  if (exists) {
+    return res.send({
+      success: false,
+      message: "Already exists",
+    });
+  }
+
+  const result = await favoriteCollection.insertOne(favorite);
+
+  res.send({
+    success: true,
+    insertedId: result.insertedId,
+  });
+});
+
+
+
+
+
 
 
 app.post("/subscription", async (req, res) => {
@@ -169,6 +201,44 @@ app.post("/subscription", async (req, res) => {
 });
 
 
+app.get('/top-contributors', async (req, res) => {
+  try {
+    const topUsers = await lessonsCollection.aggregate([
+      {
+        $match: {
+          userId: { $exists: true, $ne: "" }
+        }
+      },
+      {
+        $group: {
+          _id: "$userId",
+          name: { $first: "$userName" },
+          image: { $first: "$image" },
+          totalLessons: { $sum: 1 },
+          topLessonId: { $first: "$_id" },
+          topLessonTitle: { $first: "$title" }
+        }
+      },
+      {
+        $sort: { totalLessons: -1 }
+      },
+      {
+        $limit: 4
+      }
+    ]).toArray();
+
+    res.send(topUsers);
+
+  } catch (error) {
+    console.error(error); 
+    res.status(500).send({
+      message: error.message,
+      error
+    });
+  }
+});
+
+
 app.get("/my-lessons/:email", async (req, res) => {
   const email = req.params.email;
 
@@ -202,9 +272,18 @@ app.get("/addLesson/:id", async (req, res) => {
     _id: id,
   });
 
-  res.json(result);
+  res.send(result);
 });
 
+// app.get("/addLesson/:id", async (req, res) => {
+//   const { id } = req.params;
+
+//   const result = await addLesson.findOne({
+//     _id: new ObjectId(id),
+//   });
+
+//   res.send(result);
+// });
 
 
 
