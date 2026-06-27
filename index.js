@@ -24,9 +24,13 @@ const client = new MongoClient(uri, {
   },
 });
 
-async function run() {
-  try {
-    await client.connect();
+// async function run() {
+//   try {
+//     await client.connect();
+
+client.connect(()=>{
+  console.log('mongo dbbbbbbbbb')
+}).catch(console.dir)
 
     const db = client.db("lessonVault");
     const subscriptionsCollection = db.collection("subscriptions");
@@ -55,6 +59,17 @@ app.patch("/addLesson/:id", async (req, res) => {
     console.error("Server Error:", err.message); // exact error দেখাবে
     res.status(500).send({ error: err.message });
   }
+});
+
+
+//  app.get('/addLesson',async (req,res)=>{
+//       const result =await addLesson.find().limit(3).toArray()
+//       res.json(result)
+//     })
+
+app.get("/featuredLessons", async (req, res) => {
+  const result = await addLesson.find().limit(3).toArray();
+  res.json(result);
 });
 
 
@@ -184,6 +199,8 @@ app.post("/subscription", async (req, res) => {
       res.json(result);
     });
 
+
+
     // comment er jonno
     app.post("/comments", async (req, res) => {
   try {
@@ -265,15 +282,38 @@ app.get("/comments/:lessonId", async (req, res) => {
   res.send(result);
 });
 
+
+
+
+
+
+
+
+
+
 app.get("/addLesson/:id", async (req, res) => {
-  const { id } = req.params;
+  try {
+    const { id } = req.params;
 
-  const result = await addLesson.findOne({
-    _id: id,
-  });
+    const result = await addLesson.findOne({
+      _id: new ObjectId(id),
+    });
 
-  res.send(result);
+    if (!result) {
+      return res.status(404).send({ message: "Lesson not found" });
+    }
+
+    res.send(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "Internal Server Error" });
+  }
 });
+
+
+
+
+
 
 // app.get("/addLesson/:id", async (req, res) => {
 //   const { id } = req.params;
@@ -308,15 +348,17 @@ app.get("/addLesson/:id", async (req, res) => {
   res.send(result);
 });
 
-    // await client.db("admin").command({ ping: 1 });
-    console.log("MongoDB connected successfully!");
-  } catch (error) {
-    console.error(error);
-  }
-}
+//     // await client.db("admin").command({ ping: 1 });
+//     console.log("MongoDB connected successfully!");
+//   } catch (error) {
+//     console.error(error);
+//   }
+// }
 
-run().catch(console.dir);
+// run().catch(console.dir);
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
+
+module.exports=app
