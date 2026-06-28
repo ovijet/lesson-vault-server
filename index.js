@@ -24,23 +24,191 @@ const client = new MongoClient(uri, {
   },
 });
 
-// async function run() {
-//   try {
-//     await client.connect();
+client
+  .connect(() => {
+    console.log("mongo dbbbbbbbbb");
+  })
+  .catch(console.dir);
 
-client.connect(()=>{
-  console.log('mongo dbbbbbbbbb')
-}).catch(console.dir)
-
-    const db = client.db("lessonVault");
-    const subscriptionsCollection = db.collection("subscriptions");
-    const userCollection = db.collection("user");
-    const addLesson = db.collection("addLesson");
-    const commentsCollection = db.collection("comments");
-    const favoriteCollection = db.collection("favorite");
+const db = client.db("lessonVault");
+const subscriptionsCollection = db.collection("subscriptions");
+const userCollection = db.collection("user");
+const addLesson = db.collection("addLesson");
+const commentsCollection = db.collection("comments");
+const favoriteCollection = db.collection("favorites");
+const reportsCollection = db.collection("reports");
 
 
-    
+app.get("/top-contributors", async (req, res) => {
+  try {
+    const topContributors = await addLesson.aggregate([
+  
+      {
+        $group: {
+          _id: "$userEmail", 
+          totalLessons: { $sum: 1 },
+          allLessons: { $push: { title: "$title" } },
+          
+          backupName: { $first: "$userName" } 
+        }
+      },
+     
+      { $sort: { totalLessons: -1 } },
+      { $limit: 3 },
+     
+      {
+        $lookup: {
+          from: "user", 
+          localField: "_id",
+          foreignField: "email", 
+          as: "userDetails"
+        }
+      },
+      { $unwind: { path: "$userDetails", preserveNullAndEmptyArrays: true } },
+      
+      {
+        $project: {
+          _id: { $ifNull: ["$userDetails._id", "$_id"] },
+          
+          name: { 
+            $ifNull: [
+              "$userDetails.name", 
+              "$backupName",
+              { $arrayElemAt: [{ $split: ["$_id", "@"] }, 0] } 
+            ] 
+          },
+          email: "$_id",
+          
+          image: { 
+            $ifNull: [
+              "$userDetails.image", 
+              "$userDetails.photoURL", 
+              "$userDetails.avatar",
+              "https://api.dicebear.com/7.x/adventurer/svg?seed=Ovi" 
+            ] 
+          },
+          totalLessons: 1,
+          topLessonTitle: { $arrayElemAt: ["$allLessons.title", 0] }
+        }
+      }
+    ]).toArray();
+
+    res.status(200).send(topContributors);
+  } catch (error) {
+    console.error("Aggregation error:", error);
+    res.status(500).send({ message: "Internal Server Error", error: error.message });
+  }
+});
+
+app.post('/reports', async (req, res) => {
+  try {
+    const { lessonId, title, email } = req.body;
+
+    if (!lessonId || !email) {
+      return res.status(400).json({ message: "Lesson ID and Email are required!" });
+    }
+
+    // অলরেডি রিপোর্ট করেছে কিনা চেক করা (MongoDB Driver syntax)
+    const alreadyReported = await reportsCollection.findOne({ lessonId, email });
+    if (alreadyReported) {
+      return res.status(400).json({ message: "You have already reported this lesson!" });
+    }
+
+    // নতুন রিপোর্টের অবজেক্ট তৈরি
+    const newReport = {
+      lessonId,
+      lessonTitle: title, // আপনার এডমিন পেজের "lessonTitle" প্রপার্টির সাথে মিল রাখার জন্য
+      email,
+      createdAt: new Date()
+    };
+
+    // ডেটাবেজে ইনসার্ট করা
+    const result = await reportsCollection.insertOne(newReport);
+
+    return res.status(201).json({ 
+      success: true, 
+      message: "Reported successfully!", 
+      insertedId: result.insertedId 
+    });
+
+  } catch (error) {
+    console.error("Report Server Error:", error);
+    return res.status(500).json({ message: "Internal Server Error", error: error.message });
+  }
+});
+
+
+app.get("/admin/reported-lessons", async (req, res) => {
+  try {
+    // সব রিপোর্ট নিয়ে এসে নতুন থেকে পুরাতন ক্রমানুসারে (Descending order) সাজানো হবে
+    const result = await reportsCollection.find().sort({ createdAt: -1 }).toArray();
+    res.send(result);
+  } catch (error) {
+    console.error("GET Reports Error:", error);
+    res.status(500).send({ message: "Failed to fetch reported lessons" });
+  }
+});
+
+
+app.post("/favorites", async (req, res) => {
+  try {
+    const favoriteData = req.body;
+    if (!favoriteData.email || !favoriteData.lessonId) {
+      return res
+        .status(400)
+        .send({ message: "Missing required fields (email or lessonId)" });
+    }
+
+    const alreadyExists = await favoriteCollection.findOne({
+      email: favoriteData.email,
+      lessonId: favoriteData.lessonId,
+    });
+
+    if (alreadyExists) {
+      return res.status(400).send({ message: "Already added to favorites!" });
+    }
+
+    const result = await favoriteCollection.insertOne(favoriteData);
+    res.status(201).send({ success: true, insertedId: result.insertedId });
+  } catch (error) {
+    console.error("Database Error:", error);
+    res
+      .status(500)
+      .send({ message: "Internal Server Error", error: error.message });
+  }
+});
+
+
+app.get("/my-favorites/:email", async (req, res) => {
+  try {
+    const userEmail = req.params.email;
+    const query = { email: userEmail };
+    const result = await favoriteCollection.find(query).toArray();
+    res.send(result);
+  } catch (error) {
+    console.error("GET Favorites Error:", error);
+    res.status(500).send({ message: "Failed to fetch favorites" });
+  }
+});
+
+
+app.delete("/my-favorites/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const query = { _id: new ObjectId(id) };
+    const result = await favoriteCollection.deleteOne(query);
+
+    if (result.deletedCount === 1) {
+      res.send({ success: true, message: "Removed successfully" });
+    } else {
+      res.status(404).send({ success: false, message: "Item not found" });
+    }
+  } catch (error) {
+    console.error("DELETE Favorite Error:", error);
+    res.status(500).send({ message: "Server error during deletion" });
+  }
+});
+
 app.patch("/addLesson/:id", async (req, res) => {
   try {
     const id = req.params.id;
@@ -50,259 +218,117 @@ app.patch("/addLesson/:id", async (req, res) => {
 
     const result = await addLesson.updateOne(
       { _id: new ObjectId(id) },
-      { $set: body }
+      { $set: body },
     );
 
     console.log(result);
     res.send(result);
   } catch (err) {
-    console.error("Server Error:", err.message); // exact error দেখাবে
+    console.error("Server Error:", err.message);
     res.status(500).send({ error: err.message });
   }
 });
-
-
-//  app.get('/addLesson',async (req,res)=>{
-//       const result =await addLesson.find().limit(3).toArray()
-//       res.json(result)
-//     })
 
 app.get("/featuredLessons", async (req, res) => {
   const result = await addLesson.find().limit(3).toArray();
   res.json(result);
 });
 
-
-
-
-app.post("/favorites", async (req, res) => {
-  const favorite = req.body;
-
-  const exists = await favoriteCollection.findOne({
-    lessonId: favorite.lessonId,
-    email: favorite.email,
-  });
-
-  if (exists) {
-    return res.send({
-      success: false,
-      message: "Already exists",
-    });
-  }
-
-  const result = await favoriteCollection.insertOne(favorite);
-
-  res.send({
-    success: true,
-    insertedId: result.insertedId,
-  });
-});
-
-
-
-
-
-
-
 app.post("/subscription", async (req, res) => {
   try {
     const { email } = req.body;
-
     const result = await userCollection.updateOne(
       { email },
-      {
-        $set: {
-          plan: "premium",
-        },
-      }
+      { $set: { plan: "premium" } },
     );
-
-    res.send({
-      success: true,
-      result,
-    });
+    res.send({ success: true, result });
   } catch (error) {
     res.status(500).send(error.message);
   }
 });
 
+app.post("/addLesson", async (req, res) => {
+  try {
+    const lesson = req.body;
+    const result = await addLesson.insertOne(lesson);
+    res.json({ success: true, insertedId: result.insertedId });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 
+app.patch("/admin/profile/update/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { name, image } = req.body;
+    const filter = { _id: new ObjectId(id) };
+    const updateDoc = {
+      $set: { name: name, image: image, photoURL: image },
+    };
 
+    const result = await userCollection.updateOne(filter, updateDoc);
 
-
-
-
-    // ✅ Add lesson route
-    app.post("/addLesson", async (req, res) => {
-      try {
-        const lesson = req.body;
-        const result = await addLesson.insertOne(lesson);
-
-        res.json({
+    if (result.modifiedCount > 0) {
+      res
+        .status(200)
+        .send({
           success: true,
-          insertedId: result.insertedId,
+          message: "Admin profile updated successfully",
+          result,
         });
-      } catch (error) {
-        res.status(500).json({
-          success: false,
-          message: error.message,
-        });
-      }
-    });
+    } else {
+      res
+        .status(404)
+        .send({ success: false, message: "No changes made or user not found" });
+    }
+  } catch (error) {
+    res
+      .status(500)
+      .send({
+        success: false,
+        message: "Failed to update admin profile",
+        error: error.message,
+      });
+  }
+});
 
+app.get("/addLesson", async (req, res) => {
+  const result = await addLesson.find().toArray();
+  res.json(result);
+});
 
-    app.patch('/admin/profile/update/:id', async (req, res) => {
-      try {
-        const id = req.params.id;
-        const { name, image } = req.body; // Extract data from request body
-
-        // Create filter using MongoDB ObjectId
-        const filter = { _id: new ObjectId(id) };
-
-        // Define the update operation
-        const updateDoc = {
-          $set: {
-            name: name,
-            image: image, // Updates both image and photoURL fields if needed
-            photoURL: image,
-          },
-        };
-
-        // Execute the update in the 'user' collection
-        const result = await usersCollection.updateOne(filter, updateDoc);
-
-        if (result.modifiedCount > 0) {
-          res.status(200).send({
-            success: true,
-            message: 'Admin profile updated in the archive successfully',
-            result,
-          });
-        } else {
-          res.status(404).send({
-            success: false,
-            message: 'No changes made or user not found',
-          });
-        }
-      } catch (error) {
-        // Handle potential server or database errors
-        res.status(500).send({
-          success: false,
-          message: 'Failed to update admin profile registry',
-          error: error.message,
-        });
-      }
-    });
-
-    // ✅ Get lessons
-    app.get("/addLesson", async (req, res) => {
-      const result = await addLesson.find().toArray();
-      res.json(result);
-    });
-
-
-
-    // comment er jonno
-    app.post("/comments", async (req, res) => {
+app.post("/comments", async (req, res) => {
   try {
     const commentData = req.body;
-
     const result = await commentsCollection.insertOne({
       ...commentData,
       createdAt: new Date(),
     });
-
     res.send(result);
   } catch (error) {
     res.status(500).send(error.message);
   }
 });
 
-
-app.get('/top-contributors', async (req, res) => {
-  try {
-    const topUsers = await lessonsCollection.aggregate([
-      {
-        $match: {
-          userId: { $exists: true, $ne: "" }
-        }
-      },
-      {
-        $group: {
-          _id: "$userId",
-          name: { $first: "$userName" },
-          image: { $first: "$image" },
-          totalLessons: { $sum: 1 },
-          topLessonId: { $first: "$_id" },
-          topLessonTitle: { $first: "$title" }
-        }
-      },
-      {
-        $sort: { totalLessons: -1 }
-      },
-      {
-        $limit: 4
-      }
-    ]).toArray();
-
-    res.send(topUsers);
-
-  } catch (error) {
-    console.error(error); 
-    res.status(500).send({
-      message: error.message,
-      error
-    });
-  }
-});
-
-
 app.get("/my-lessons/:email", async (req, res) => {
   const email = req.params.email;
-
-  const result = await addLesson
-    .find({
-      userEmail: email,
-    })
-    .toArray();
-
+  const result = await addLesson.find({ userEmail: email }).toArray();
   res.send(result);
 });
 
 app.get("/comments/:lessonId", async (req, res) => {
   const { lessonId } = req.params;
-
-  console.log("Param lessonId:", lessonId);
-
-  const result = await commentsCollection
-    .find({ lessonId })
-    .toArray();
-
-  console.log("Found comments:", result);
-
+  const result = await commentsCollection.find({ lessonId }).toArray();
   res.send(result);
 });
-
-
-
-
-
-
-
-
-
 
 app.get("/addLesson/:id", async (req, res) => {
   try {
     const { id } = req.params;
-
-    const result = await addLesson.findOne({
-      _id: new ObjectId(id),
-    });
-
+    const result = await addLesson.findOne({ _id: new ObjectId(id) });
     if (!result) {
       return res.status(404).send({ message: "Lesson not found" });
     }
-
     res.send(result);
   } catch (error) {
     console.error(error);
@@ -310,55 +336,19 @@ app.get("/addLesson/:id", async (req, res) => {
   }
 });
 
-
-
-
-
-
-// app.get("/addLesson/:id", async (req, res) => {
-//   const { id } = req.params;
-
-//   const result = await addLesson.findOne({
-//     _id: new ObjectId(id),
-//   });
-
-//   res.send(result);
-// });
-
-
-
-    app.get("/users", async (req, res) => {
+app.get("/users", async (req, res) => {
   const result = await userCollection.find().toArray();
   res.send(result);
 });
 
-
-
-
-
-
-
-  app.delete("/addLesson/:id", async (req, res) => {
+app.delete("/addLesson/:id", async (req, res) => {
   const id = req.params.id;
-
-  const result = await addLesson.deleteOne({
-    _id: new ObjectId(id),
-  });
-
+  const result = await addLesson.deleteOne({ _id: new ObjectId(id) });
   res.send(result);
 });
-
-//     // await client.db("admin").command({ ping: 1 });
-//     console.log("MongoDB connected successfully!");
-//   } catch (error) {
-//     console.error(error);
-//   }
-// }
-
-// run().catch(console.dir);
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
 
-module.exports=app
+module.exports = app;
