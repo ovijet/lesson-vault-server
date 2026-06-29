@@ -24,11 +24,26 @@ const client = new MongoClient(uri, {
   },
 });
 
+
+// const verifyToken= async(req,res,next)=>{
+//     const auth=req.headers.authorization
+  
+//     const token=auth.split(' ')[1]
+    
+//     console.log(token,'xxxx');
+         
+// }
+
+
 client
   .connect(() => {
     console.log("mongo dbbbbbbbbb");
   })
   .catch(console.dir);
+
+
+
+
 
 const db = client.db("lessonVault");
 const subscriptionsCollection = db.collection("subscriptions");
@@ -249,6 +264,7 @@ app.delete("/my-favorites/:id", async (req, res) => {
 });
 
 app.patch("/addLesson/:id", async (req, res) => {
+  
   try {
     const id = req.params.id;
     const body = req.body;
@@ -361,7 +377,7 @@ app.get("/comments/:lessonId", async (req, res) => {
   res.send(result);
 });
 
-app.get("/addLesson/:id", async (req, res) => {
+app.get("/addLesson/:id",async (req, res) => {
   try {
     const { id } = req.params;
     const result = await addLesson.findOne({ _id: new ObjectId(id) });
