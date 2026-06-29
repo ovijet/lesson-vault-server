@@ -137,6 +137,45 @@ app.post('/reports', async (req, res) => {
   }
 });
 
+app.patch('/users/toggle-role/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: "Invalid User ID format" });
+    }
+
+    const filter = { _id: new ObjectId(id) };
+    
+    
+    const user = await userCollection.findOne(filter);
+    
+    if (!user) {
+      return res.status(404).send({ message: "User not found" });
+    }
+
+  
+    const currentRole = user.role?.trim().toLowerCase();
+    const newRole = currentRole === 'admin' ? 'User' : 'Admin';
+
+    const updateDoc = {
+      $set: { role: newRole },
+    };
+
+    const result = await userCollection.updateOne(filter, updateDoc);
+    
+    if (result.modifiedCount > 0) {
+      res.send({ success: true, newRole: newRole });
+    } else {
+      res.status(400).send({ message: "Failed to update role" });
+    }
+    
+  } catch (error) {
+    console.error("Error toggling user role:", error);
+    res.status(500).send({ message: "Internal server error" });
+  }
+});
+
 
 app.get("/admin/reported-lessons", async (req, res) => {
   try {
